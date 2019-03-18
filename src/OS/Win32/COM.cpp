@@ -1,118 +1,121 @@
 #include "OS/COM.hpp"
 #include "Common.hpp"
 #include <Windows.h>
+#include <thread>
+#include <chrono>
 
-std::vector<uint8_t> read_serial_port(std::string_view port, size_t n) noexcept {
-	HANDLE handle;
-	auto name = port.data();
-	BOOL status;
-	DWORD event_mask;
+struct Serial_Port_Window {
+	HANDLE handle{ INVALID_HANDLE_VALUE };
+	bool connected{ false };
+	COMSTAT status;
+	DWORD errors;
+	size_t baud_rate;
+};
 
-	handle = CreateFileA(name, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-	if (!handle) return {};
-	defer{ CloseHandle(handle); };
+Serial_Port::Serial_Port(std::string name) noexcept : name(std::move(name)) {
+	plateforme = new Serial_Port_Window;
+	auto serial_window = (Serial_Port_Window*)plateforme;
 
-	DCB dcb;
-	dcb.DCBlength = sizeof(DCB);
-	status = GetCommState(handle, &dcb);
+	serial_window->connected = false;
 
-	if (!status) return {};
+	serial_window->handle = CreateFileA(
+		this->name.c_str(),
+		GENERIC_READ | GENERIC_WRITE,
+		0,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL
+	);
+	if (serial_window->handle == INVALID_HANDLE_VALUE) {
+		// >TODO: log
+		// printf("ERROR: Handle was not attached. Reason: %s not available\n", portName);
+		return;
+	}
+	DCB dcb = { 0 };
 
-	dcb.BaudRate = 115200;
+	if (!GetCommState(serial_window->handle, &dcb)) {
+		// >TODO: log
+		// printf("ERROR: Handle was not attached. Reason: %s not available\n", portName);
+		return;
+	}
+
+	serial_window->baud_rate = CBR_115200;
+	dcb.BaudRate = serial_window->baud_rate;
 	dcb.ByteSize = 8;
-	dcb.StopBits = 1;
+	dcb.StopBits = ONESTOPBIT;
 	dcb.Parity = NOPARITY;
+	dcb.fDtrControl = DTR_CONTROL_ENABLE;
 
-	status = SetCommState(handle, &dcb);
+	if (!SetCommState(serial_window->handle, &dcb)) {
+		// >TODO: log
+		// printf("ERROR: Handle was not attached. Reason: %s not available\n", portName);
+		return;
+	}
+	
+	serial_window->connected = true;
 
-	if (!status) return {};
+	PurgeComm(serial_window->handle, PURGE_RXCLEAR | PURGE_TXCLEAR);
+}
 
-	COMMTIMEOUTS timeouts = { 0 };
-	timeouts.ReadIntervalTimeout = 50;
-	timeouts.ReadTotalTimeoutConstant = 50;
-	timeouts.ReadTotalTimeoutMultiplier = 10;
-	timeouts.WriteTotalTimeoutConstant = 50;
-	timeouts.WriteTotalTimeoutMultiplier = 10;
+Serial_Port::~Serial_Port() noexcept {
+	auto serial_window = (Serial_Port_Window*)plateforme;
 
-	if (!SetCommTimeouts(handle, &timeouts)) return {};
+	if (serial_window->connected) {
+		serial_window->connected = false;
+		CloseHandle(serial_window->handle);
+	}
+	delete serial_window;
+}
 
-	status = SetCommMask(handle, EV_RXCHAR);
+std::vector<uint8_t> Serial_Port::read(size_t n) noexcept {
+	auto serial_window = (Serial_Port_Window*)plateforme;
+	DWORD bytes_read{ 0 };
 
-	if (!status) return {};
+	ClearCommError(serial_window->handle, &serial_window->errors, &serial_window->status);
 
-	status = WaitCommEvent(handle, &event_mask, NULL);
+	auto to_read = std::min((size_t)serial_window->status.cbInQue, n);
 
-	if (!status) return {};
+	std::vector<uint8_t> result(n);
+	ReadFile(serial_window->handle, result.data(), to_read, &bytes_read, NULL);
+	result.resize(bytes_read);
 
-	std::vector<uint8_t> bytes;
-	bytes.resize(n);
+	return result;
+}
 
-	size_t all_byte_read{ 0 };
-	do {
-		auto Bytes_To_Read_By_Pass = n;
-		DWORD bytes_read;
+std::vector<uint8_t> Serial_Port::wait_read(size_t n) noexcept {
+	auto serial_window = (Serial_Port_Window*)plateforme;
+	size_t bytes_read{ 0 };
 
-		status = ReadFile(
-			handle,
-			bytes.data() + all_byte_read,
-			std::min(Bytes_To_Read_By_Pass, n - all_byte_read),
-			&bytes_read,
-			NULL
+	std::vector<uint8_t> result(n);
+	while (bytes_read < n) {
+		ClearCommError(serial_window->handle, &serial_window->errors, &serial_window->status);
+
+		DWORD byte_read_this_time{ 0 };
+
+		auto to_read = std::min((size_t)serial_window->status.cbInQue, n - bytes_read);
+		ReadFile(
+			serial_window->handle,
+			result.data() + bytes_read,
+			to_read,
+			&byte_read_this_time,
+			nullptr
 		);
+		bytes_read += byte_read_this_time;
 
-		all_byte_read += bytes_read;
-
-		if (bytes_read == 0) {
-			status = WaitCommEvent(handle, &event_mask, NULL);
-			if (!status) return {};
-		}
-	} while (all_byte_read < n);
-
-	bytes.resize(all_byte_read);
-
-	return bytes;
+		using namespace std::chrono_literals;
+		std::this_thread::sleep_for(100ms);
+	}
+	result.resize(bytes_read);
+	return result;
 }
 
-size_t write_serial_port(std::string_view port, std::vector<uint8_t> data) noexcept {
-	HANDLE handle;
-	auto name = port.data();
-	BOOL status;
+size_t Serial_Port::write(const std::vector<uint8_t>& data) noexcept {
+	auto serial_window = (Serial_Port_Window*)plateforme;
+	DWORD send{ 0 };
 
-	handle = CreateFileA(name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-	if (!handle) return 0;
-	defer{ CloseHandle(handle); };
+	if (!WriteFile(serial_window->handle, (void*)data.data(), data.size(), &send, 0))
+		ClearCommError(serial_window->handle, &serial_window->errors, &serial_window->status);
 
-	DCB dcb;
-	dcb.DCBlength = sizeof(DCB);
-	status = GetCommState(handle, &dcb);
-
-	if (!status) return 0;
-
-	dcb.BaudRate = 115200;
-	dcb.ByteSize = 8;
-	dcb.StopBits = 1;
-	dcb.Parity = NOPARITY;
-
-	status = SetCommState(handle, &dcb);
-
-	if (!status) return 0;
-
-	COMMTIMEOUTS timeouts = { 0 };
-	timeouts.ReadIntervalTimeout = 50;
-	timeouts.ReadTotalTimeoutConstant = 50;
-	timeouts.ReadTotalTimeoutMultiplier = 10;
-	timeouts.WriteTotalTimeoutConstant = 50;
-	timeouts.WriteTotalTimeoutMultiplier = 10;
-
-	if (!SetCommTimeouts(handle, &timeouts)) return false;
-
-	status = SetCommMask(handle, EV_RXCHAR);
-	if (!status) return 0;
-
-	DWORD bytes_wrote;
-
-	status = WriteFile(handle, data.data(), data.size(), &bytes_wrote, NULL);
-
-	return bytes_wrote;
+	return send;
 }
-

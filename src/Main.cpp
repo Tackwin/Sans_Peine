@@ -3,6 +3,7 @@
 #include "extern/imgui-SFML.h"
 
 #include "Magnetometer.hpp"
+#include "Page.hpp"
 
 int main(int, char**) noexcept {
 
@@ -15,10 +16,12 @@ int main(int, char**) noexcept {
 	bool show_demo{ false };
 	bool dockspace_open{ true };
 
-	Magnetometer main_mag;
-	main_mag.port = "\\\\.\\COM3";
+	Magnetometer main_mag{ "\\\\.\\COM3" };
+	Page page;
+
 	Magnetometer_Window main_mag_window;
 	main_mag_window.magnetometer = &main_mag;
+	main_mag_window.page = &page;
 
 	sf::Clock dt_clock;
 	while (window.isOpen()) {
@@ -59,8 +62,10 @@ int main(int, char**) noexcept {
 		ImGui::PopStyleVar(2);
 
 		window.clear({ 33, 33, 33, 255 });
-
 		ImGui::SFML::Render(window);
+
+		page.render(window);
+
 		window.display();
 	}
 

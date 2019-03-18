@@ -31,6 +31,8 @@
     <ClInclude Include="src\extern\imstb_truetype.h" />
     <ClInclude Include="src\Magnetometer.hpp" />
     <ClInclude Include="src\OS\COM.hpp" />
+    <ClInclude Include="src\Page.hpp" />
+    <ClInclude Include="src\Vector.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\extern\Extension\imgui-USER.cpp" />
@@ -42,6 +44,7 @@
     <ClCompile Include="src\Magnetometer.cpp" />
     <ClCompile Include="src\Main.cpp" />
     <ClCompile Include="src\OS\Win32\COM.cpp" />
+    <ClCompile Include="src\Page.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

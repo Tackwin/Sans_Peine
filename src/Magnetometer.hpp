@@ -3,6 +3,12 @@
 #include <vector>
 #include <cstdint>
 
+#include "OS/COM.hpp"
+
+#include "Vector.hpp"
+
+struct Page;
+
 struct Magnetometer {
 #pragma pack(push, 1)
 	struct Reading {
@@ -17,19 +23,26 @@ struct Magnetometer {
 	};
 #pragma pack(pop)
 
-	std::string port;
+	Serial_Port serial;
+	std::vector<Vector3f> readings;
+	std::vector<Vector3f> raw_points;
 
-	std::vector<Reading> readings;
+	std::string name;
+
+	int smooth_sampling{ 10 };
+
+	Magnetometer(std::string port) noexcept;
 
 	void read(size_t n) noexcept;
 };
 
 struct Magnetometer_Window {
 	Magnetometer* magnetometer{ nullptr };
+	Page* page{ nullptr };
 
 	bool open{ false };
 
-	size_t readings_ro_read{ 0 };
+	size_t readings_ro_read{ 1 };
 
 	void update() noexcept;
 };

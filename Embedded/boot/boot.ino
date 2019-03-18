@@ -33,7 +33,6 @@ struct Vector3i {
 void setup() {
   Serial.begin(115200);
   mag.initialize(); //Initializes the mag sensor
-  mag.setDR_OS(MAG3110_DR_OS_80_16);
   mag.start();
 }
 
@@ -89,13 +88,22 @@ void serialEvent(){
 }
 
 void send_vector(){
+  static int N = 0;
     Vector3i vec;
     
     int a, b, c;
     mag.readMag(&a, &b, &c);
-    vec.x.v = (int32_t)a;
-    vec.y.v = (int32_t)b;
-    vec.z.v = (int32_t)c;
+
+    if (a > +10000) a = +10000;
+    if (a < -10000) a = -10000;
+    if (b > +10000) b = +10000;
+    if (b < -10000) b = -10000;
+    if (c > +10000) c = +10000;
+    if (c < -10000) c = -10000;
+    
+    vec.x.v = a;
+    vec.y.v = b;
+    vec.z.v = c;
     
     send_i32(vec.x);
     //Serial.print(", ");
